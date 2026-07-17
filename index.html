@@ -2664,6 +2664,12 @@ function hideLoginScreen() {
     ls.classList.add('hidden');
     ls.style.display = 'none';
   }
+
+  const adminPanel = document.getElementById('admin-panel');
+  if (adminPanel) {
+    adminPanel.classList.add('hidden');
+    adminPanel.style.display = 'none';
+  }
   
   const header = document.querySelector('header');
   if (header) header.classList.remove('hidden');
@@ -2672,7 +2678,10 @@ function hideLoginScreen() {
   if (nav) nav.classList.remove('hidden');
 
   const mainContent = document.getElementById('main-content');
-  if (mainContent) mainContent.classList.remove('hidden');
+  if (mainContent) {
+    mainContent.classList.remove('hidden');
+    mainContent.style.display = 'block';
+}
 }
 
 function getSections() {
