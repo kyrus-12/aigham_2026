@@ -2808,16 +2808,15 @@
       function loginSuccess() {
         sessionStartTime = new Date();
         localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(currentUser));
-        if (currentUserRole === 'student' || currentUserRole === 'guest') {
-          saveUserToRecords(currentUser);
+
+        if (currentUserRole === 'admin') {
+          window.location.href = 'admin.html';
+          return;
         }
+        saveUserToRecords(currentUser);
         hideLoginScreen();
         startSessionTimer();
         loadSavedScores();
-
-        if (currentUserRole === 'admin') {
-          showAdminPanel();
-        }
       }
 
       function saveUserToRecords(user) {
