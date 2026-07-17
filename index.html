@@ -2606,12 +2606,12 @@
       }
 
       
-   let currentUser = null;
+  let currentUser = null;
 let currentUserRole = null;
 let sessionStartTime = null;
 let sessionTimerInterval = null;
 let descriptorMcqScores = [];
-let skillTestsRecords = []; // Keep global spelling consistent
+let skillTestsRecords = []; 
 
 const ADMIN_USERNAME = 'admin';
 
@@ -2632,7 +2632,7 @@ function initLoginSystem() {
       currentUserRole = currentUser.role;
       sessionStartTime = new Date(currentUser.sessionStart);
       
-      // Auto-routing based on role on reload:
+      // Synchronous routing check upon page reload
       if (currentUserRole === 'admin') {
         hideLoginScreen();
         showAdminPanel();
@@ -2656,7 +2656,7 @@ function showLoginScreen() {
     ls.style.display = 'flex';
   }
   
-  // Hide all user dashboard sections while logging in
+  // Force-hide all application panels when accessing the portal gate
   const mainContent = document.getElementById('main-content');
   if (mainContent) mainContent.classList.add('hidden');
   
@@ -2680,17 +2680,17 @@ function hideLoginScreen() {
     ls.style.display = 'none';
   }
   
-  // Expose headers/footers for standard templates
   const header = document.querySelector('header');
   if (header) header.classList.remove('hidden');
   
   const nav = document.querySelector('footer.global-nav');
   if (nav) nav.classList.remove('hidden');
 
-  // Route screen layout explicitly by role:
   const mainContent = document.getElementById('main-content');
   const adminPanel = document.getElementById('admin-panel');
 
+  // --- HARD SEPARATION RULE ---
+  // Ensures that Admin dashboards and Student layouts NEVER overlap in the same DOM view
   if (currentUserRole === 'admin') {
     if (mainContent) mainContent.classList.add('hidden');
     if (adminPanel) adminPanel.classList.remove('hidden');
@@ -2732,17 +2732,17 @@ function handleLogin(event) {
     errorDiv.classList.remove('hidden');
     return;
   }
+  if (!passwordInput) {
+    errorDiv.textContent = 'Please enter a password key.';
+    errorDiv.classList.remove('hidden');
+    return;
+  }
 
-  // --- ADMIN AUTHENTICATION ---
+  // ─── ROLE 1: ADMIN PORTAL LOGIN ───
   if (usernameInput.toLowerCase() === ADMIN_USERNAME) {
-    if (!passwordInput) {
-      errorDiv.textContent = 'Admin access requires a password.';
-      errorDiv.classList.remove('hidden');
-      return;
-    }
     const currentSections = getSections();
     if (!currentSections[passwordInput]) {
-      errorDiv.textContent = 'No section found with this password.';
+      errorDiv.textContent = 'No synchronous active section found with this key.';
       errorDiv.classList.remove('hidden');
       return;
     }
@@ -2760,11 +2760,32 @@ function handleLogin(event) {
     return;
   }
 
-  // --- STUDENT & GUEST AUTHENTICATION ---
-  if (usernameInput && passwordInput) {
-    let currentSections = getSections();
+  // ─── ROLES 2 & 3: GUEST AND STUDENT ROUTER ───
+  let currentSections = getSections();
 
-    if (!currentSections[passwordInput]) {
+  // Scenario A: Key does not exist -> This user initializes the session as the GUEST
+  if (!currentSections[passwordInput]) {
+    currentSections[passwordInput] = {
+      owner: usernameInput,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    };
+    saveSections(currentSections);
+
+    currentUserRole = 'guest';
+    currentUser = {
+      username: usernameInput,
+      role: 'guest',
+      guestPassword: passwordInput,
+      isSectionOwner: true,
+      sessionStart: new Date().toISOString(),
+      timeIn: formatTime(new Date()),
+      timeOut: null
+    };
+  } else { 
+    // Scenario B: Key exists but has expired
+    if (currentSections[passwordInput].expiresAt && currentSections[passwordInput].expiresAt < new Date().toISOString()) {
+      delete currentSections[passwordInput];
       currentSections[passwordInput] = {
         owner: usernameInput,
         createdAt: new Date().toISOString(),
@@ -2782,16 +2803,16 @@ function handleLogin(event) {
         timeIn: formatTime(new Date()),
         timeOut: null
       };
-    } else { 
-      if (currentSections[passwordInput].expiresAt && currentSections[passwordInput].expiresAt < new Date().toISOString()) {
-        delete currentSections[passwordInput];
-        currentSections[passwordInput] = {
-          owner: usernameInput,
-          createdAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-        };
-        saveSections(currentSections);
+    } 
+    // Scenario C: Key is live and valid
+    else {
+      currentSections[passwordInput].expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      saveSections(currentSections);
 
+      const sectionOwner = currentSections[passwordInput].owner;
+      
+      // If the guest logs back in from another device/browser tab using their credentials
+      if (sectionOwner === usernameInput) {
         currentUserRole = 'guest';
         currentUser = {
           username: usernameInput,
@@ -2802,11 +2823,9 @@ function handleLogin(event) {
           timeIn: formatTime(new Date()),
           timeOut: null
         };
-      } else {
-        currentSections[passwordInput].expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-        saveSections(currentSections);
-
-        const sectionOwner = currentSections[passwordInput].owner;
+      } 
+      // A new unique student username enters the room session key
+      else {
         currentUserRole = 'student';
         currentUser = {
           username: usernameInput,
@@ -2819,9 +2838,8 @@ function handleLogin(event) {
         };
       }
     }
-    loginSuccess();
-    return;
   }
+  loginSuccess();
 }
 
 function loginSuccess() {
@@ -2848,8 +2866,8 @@ function saveUserToRecords(user) {
     records.push({
       username: user.username,
       role: user.role,
-      sectionPassword: user.sectionPassword || null,
-      sectionOwner: user.sectionOwner || null,
+      sectionPassword: user.sectionPassword || user.guestPassword || null,
+      sectionOwner: user.sectionOwner || user.username,
       guestPassword: user.guestPassword || null,
       isSectionOwner: user.isSectionOwner || false,
       timeIn: user.timeIn, 
@@ -2920,14 +2938,6 @@ function logoutUser() {
       record.skillTotalScore = skillTestsRecords.reduce((sum, t) => sum + t.score, 0);
       record.skillTotalQuestions = skillTestsRecords.reduce((sum, t) => sum + t.total, 0);
       localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(records));
-    }
-  }
-
-  if (currentUser && currentUserRole === 'guest' && currentUser.guestPassword) {
-    const sections = getSections();
-    if (sections[currentUser.guestPassword]) {
-      delete sections[currentUser.guestPassword];
-      saveSections(sections);
     }
   }
 
@@ -3033,7 +3043,6 @@ function renderAdminRecords() {
 
   let html = '';
   filtered.forEach((record, idx) => {
-    // FIXED: Correct typo 'calculatorDuration' to 'calculateDuration'
     const duration = record.timeOut ? calculateDuration(record.timeIn, record.timeOut) : 'Active';
     const statusClass = !record.timeOut ? 'text-green-400' : 'text-gray-400';
     const isOwner = record.isSectionOwner;
@@ -3067,7 +3076,7 @@ function calculateDuration(timeIn, timeOut) {
     let diff = end - start;
     if (diff < 0) diff += 86400;
     const h = Math.floor(diff / 3600);
-    const m = Math.floor((diff % 3600) / 60); // FIXED: Added missing opening bracket
+    const m = Math.floor((diff % 3600) / 60); 
     const s = diff % 60;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   } catch { return 'N/A'; }
@@ -3108,7 +3117,6 @@ function downloadRecordCSV() {
   csv += `Section Owner, ${currentUser.sectionOwner}\n`;
   csv += `Total Users, ${records.length}\n`;
   csv += `Active Users, ${records.filter(r => !r.timeOut).length}\n`;
-  // FIXED: Adjusted typo 'skillTest' and 'r.skillTest' in reduce logic
   csv += `Total Tests Taken, ${records.reduce((sum, r) => sum + (r.skillTests ? r.skillTests.length : 0), 0)}\n`;
 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -3127,7 +3135,6 @@ function escapeCsv(str) {
   return String(str).replace(/"/g, '""');
 }
 
-// Utility function to ensure escapeHtml is defined if missing elsewhere in script scope
 function escapeHtml(text) {
   if (!text) return '';
   return String(text)
