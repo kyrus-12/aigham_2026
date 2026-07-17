@@ -2606,7 +2606,7 @@
       }
 
       
-      let currentUser = null;
+     let currentUser = null;
 let currentUserRole = null;
 let sessionStartTime = null;
 let sessionTimerInterval = null;
@@ -2699,6 +2699,7 @@ function handleLogin(event) {
   const sections = getSections();
   const now = new Date().toISOString();
   let changed = false;
+
   for (const [password, section] of Object.entries(sections)) {
     if (section.expiresAt && section.expiresAt < now) {
       delete sections[password];
@@ -2717,19 +2718,19 @@ function handleLogin(event) {
     errorDiv.classList.remove('hidden');
     return;
   }
+  if (!passwordInput) {
+    errorDiv.textContent = 'Please enter a password or section key.';
+    errorDiv.classList.remove('hidden');
+    return;
+  }
 
   if (usernameInput.toLowerCase() === ADMIN_USERNAME) {
-    if (!passwordInput) {
-      errorDiv.textContent = 'Admin access requires a password.';
-      errorDiv.classList.remove('hidden');
-      return;
-    }
-    const sections = getSections();
     if (!sections[passwordInput]) {
-      errorDiv.textContent = 'No section found with this password.';
+      errorDiv.textContent = 'No active section found with this password.';
       errorDiv.classList.remove('hidden');
       return;
     }
+
     currentUserRole = 'admin';
     currentUser = {
       username: 'admin',
@@ -2743,16 +2744,29 @@ function handleLogin(event) {
     loginSuccess();
     return;
   }
+  
+  if (!sections[passwordInput]) {
+    sections[passwordInput] = {
+      owner: usernameInput,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    };
+    saveSections(sections);
 
-  if (usernameInput && passwordInput) {
-    let sections = getSections();
-
-    if (!sections[passwordInput]) {
-      sections[passwordInput] = {
-        owner: usernameInput,
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-      };
+    currentUserRole = 'guest';
+    currentUser = {
+      username: usernameInput,
+      role: 'guest',
+      guestPassword: passwordInput,
+      isSectionOwner: true,
+      sessionStart: new Date().toISOString(),
+      timeIn: formatTime(new Date()),
+      timeOut: null
+    };
+  } 
+  else {
+    if (sections[passwordInput].owner === usernameInput) {
+      sections[passwordInput].expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
       saveSections(sections);
 
       currentUserRole = 'guest';
@@ -2765,46 +2779,22 @@ function handleLogin(event) {
         timeIn: formatTime(new Date()),
         timeOut: null
       };
-    } else { 
-      if (sections[passwordInput].expiresAt && sections[passwordInput].expiresAt < new Date().toISOString()) {
-        delete sections[passwordInput];
-        sections[passwordInput] = {
-          owner: usernameInput,
-          createdAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-        };
-        saveSections(sections);
-
-        currentUserRole = 'guest';
-        currentUser = {
-          username: usernameInput,
-          role: 'guest',
-          guestPassword: passwordInput,
-          isSectionOwner: true,
-          sessionStart: new Date().toISOString(),
-          timeIn: formatTime(new Date()),
-          timeOut: null
-        };
-      } else {
-        sections[passwordInput].expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-        saveSections(sections);
-
-        const sectionOwner = sections[passwordInput].owner;
-        currentUserRole = 'student';
-        currentUser = {
-          username: usernameInput,
-          role: 'student',
-          sectionPassword: passwordInput,
-          sectionOwner: sectionOwner,
-          sessionStart: new Date().toISOString(),
-          timeIn: formatTime(new Date()),
-          timeOut: null
-        };
-      }
     }
-    loginSuccess();
-    return;
+    else {
+      currentUserRole = 'student';
+      currentUser = {
+        username: usernameInput,
+        role: 'student',
+        sectionPassword: passwordInput,
+        sectionOwner: sections[passwordInput].owner,
+        sessionStart: new Date().toISOString(),
+        timeIn: formatTime(new Date()),
+        timeOut: null
+      };
+    }
   }
+
+  loginSuccess();
 }
 
 function loginSuccess() {
@@ -2829,8 +2819,8 @@ function saveUserToRecords(user) {
     records.push({
       username: user.username,
       role: user.role,
-      sectionPassword: user.sectionPassword || null,
-      sectionOwner: user.sectionOwner || null,
+      sectionPassword: user.sectionPassword || user.guestPassword || null,
+      sectionOwner: user.sectionOwner || user.username,
       guestPassword: user.guestPassword || null,
       isSectionOwner: user.isSectionOwner || false,
       timeIn: user.timeIn, 
@@ -2876,14 +2866,6 @@ function logoutUser() {
       record.skillTotalScore = skillTestRecords.reduce((sum, t) => sum + t.score, 0);
       record.skillTotalQuestions = skillTestRecords.reduce((sum, t) => sum + t.total, 0);
       localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(records));
-    }
-  }
-
-  if (currentUser && currentUserRole === 'guest' && currentUser.guestPassword) {
-    const sections = getSections();
-    if (sections[currentUser.guestPassword]) {
-      delete sections[currentUser.guestPassword];
-      saveSections(sections);
     }
   }
 
