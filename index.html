@@ -2631,10 +2631,15 @@ function initLoginSystem() {
       currentUser = JSON.parse(savedUser);
       currentUserRole = currentUser.role;
       sessionStartTime = new Date(currentUser.sessionStart);
+      
+      if (currentUserRole === 'admin') {
+        window.location.href = 'admin.html'; 
+        return;
+      }
+
       hideLoginScreen(); 
       startSessionTimer();
       loadSavedScores();
-      }
     } catch (e) {
       showLoginScreen();
     } 
@@ -2649,6 +2654,7 @@ function showLoginScreen() {
     ls.classList.remove('hidden');
     ls.style.display = 'flex';
   }
+  
   const mainContent = document.getElementById('main-content');
   if (mainContent) mainContent.classList.add('hidden');
   
@@ -2668,14 +2674,15 @@ function hideLoginScreen() {
     ls.classList.add('hidden');
     ls.style.display = 'none';
   }
-  const mainContent = document.getElementById('main-content');
-  if (mainContent) mainContent.classList.remove('hidden');
   
   const header = document.querySelector('header');
   if (header) header.classList.remove('hidden');
   
   const nav = document.querySelector('footer.global-nav');
   if (nav) nav.classList.remove('hidden');
+
+  const mainContent = document.getElementById('main-content');
+  if (mainContent) mainContent.classList.remove('hidden');
 }
 
 function getSections() {
@@ -2803,16 +2810,16 @@ function handleLogin(event) {
 function loginSuccess() {
   sessionStartTime = new Date();
   localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(currentUser));
-  if (currentUserRole === 'student' || currentUserRole === 'guest') {
-    saveUserToRecords(currentUser);
+  
+  if (currentUserRole === 'admin') {
+    window.location.href = 'admin.html';
+    return;
   }
+
+  saveUserToRecords(currentUser);
   hideLoginScreen();
   startSessionTimer();
   loadSavedScores();
-
-  if (currentUserRole === 'admin') {
-    showAdminPanel();
-  }
 }
 
 function saveUserToRecords(user) {
@@ -2837,21 +2844,6 @@ function saveUserToRecords(user) {
     });
     localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(records));
   }
-}
-
-function showAdminPanel() {
-  const step0 = document.getElementById('step-0');
-  if (step0) step0.classList.add('hidden');
-  
-  const adminPanel = document.getElementById('admin-panel');
-  if (adminPanel) adminPanel.classList.remove('hidden');
-  
-  document.getElementById('step-title').textContent = 'Admin-Dashboard';
-  document.getElementById('step-indicator').textContent = 'Admin';
-  document.getElementById('step-breadcrumb').textContent = 'Admin / Records';
-  document.getElementById('back-button').classList.add('hidden');
-  document.getElementById('reset-button').classList.add('hidden');
-  renderAdminRecords();
 }
 
 function startSessionTimer() {
@@ -2904,9 +2896,6 @@ function logoutUser() {
   sessionStartTime = null;
   descriptorMcqScores = [];
   skillTestRecords = [];
-  
-  const adminPanel = document.getElementById('admin-panel');
-  if (adminPanel) adminPanel.classList.add('hidden');
   
   window.location.reload();
 }
@@ -2961,138 +2950,7 @@ function updateUserRecord() {
   }
 }
 
-function renderAdminRecords() {
-  const allRecords = JSON.parse(localStorage.getItem(STORAGE_KEYS.records) || '[]');
-  const tbody = document.getElementById('admin-records-body');
-  const noRecords = document.getElementById('admin-no-records');
-  const searchTerm = (document.getElementById('admin-search').value || '').toLowerCase();
-
-  const adminPassword = currentUser.adminPassword;
-  const records = allRecords.filter(r => r.sectionPassword === adminPassword || r.guestPassword === adminPassword);
-  
-  document.getElementById('admin-total-users').textContent = records.length;
-  document.getElementById('admin-active-users').textContent = records.filter(r => !r.timeOut).length;
-  document.getElementById('admin-total-tests').textContent = records.reduce((sum, r) => sum + (r.skillTests ? r.skillTests.length : 0), 0);
-
-  let totalCombined = 0;
-  records.forEach(r => { totalCombined += (r.descriptorScore || 0) + (r.skillTotalScore || 0) });
-  document.getElementById('admin-avg-score').textContent = totalCombined;
-
-  const filtered = records.filter(r => r.username.toLowerCase().includes(searchTerm));
-
-  if (filtered.length === 0) {
-    tbody.innerHTML = '';
-    noRecords.classList.remove('hidden');
-    return;
-  }
-  noRecords.classList.add('hidden');
-
-  let html = '';
-  filtered.forEach((record, idx) => {
-    const duration = record.timeOut ? calculateDuration(record.timeIn, record.timeOut) : 'Active'; 
-    const statusClass = !record.timeOut ? 'text-green-400' : 'text-gray-400';
-    const isOwner = record.isSectionOwner;
-    const ownerLabel = isOwner ? `<span class="text-xs text-yellow-400 ml-1">[OWNER]</span>` : '';
-
-    html += `<tr style="border-bottom:1px solid rgba(96,165,250,0.06);" class="hover:bg-white/5 transition-colors">
-    <td class="p-2 text-gray-400">${idx + 1}</td> 
-    <td class="p-2 font-semibold text-blue-100">${escapeHtml(record.username)}${ownerLabel}</td>
-    <td class="p-2 text-gray-300">${record.timeIn || '--:--:--'}</td>
-    <td class="p-2 text-gray-300">${record.timeOut || '--:--:--'}</td>
-    <td class="p-2 ${statusClass} text-xs">${duration}</td>
-    <td class="p-2 text-blue-200">${record.descriptorScore || 0} <span class="text-gray-500">/ ${record.descriptorTotal || 0}</span></td>
-    <td class="p-2 text-gray-300">${record.skillTests ? record.skillTests.length : 0} tests</td>
-    <td class="p-2 text-blue-200">${record.skillTotalScore || 0} <span class="text-gray-500">/ ${record.skillTotalQuestions || 0}</span></td>
-    <td class="p-2"><button class="btn btn-danger text-xs py-1 px-2" onclick="deleteUserRecord('${record.username}', '${record.sessionStart}')">Delete</button></td>
-    </tr>`;
-  });
-  tbody.innerHTML = html;
-}
-
-function filterAdminRecords() {
-  renderAdminRecords();
-}
-
-function calculateDuration(timeIn, timeOut) {
-  try {
-    const [h1, m1, s1] = timeIn.split(':').map(Number);
-    const [h2, m2, s2] = timeOut.split(':').map(Number);
-    const start = h1 * 3600 + m1 * 60 + s1;
-    const end = h2 * 3600 + m2 * 60 + s2;
-    let diff = end - start;
-    if (diff < 0) diff += 86400;
-    const h = Math.floor(diff / 3600);
-    const m = Math.floor((diff % 3600) / 60); 
-    const s = diff % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  } catch { return 'N/A'; }
-}
-
-function deleteUserRecord(username, sessionStart) {
-  if (!confirm(`Delete record for "${username}"?`)) return;
-  let records = JSON.parse(localStorage.getItem(STORAGE_KEYS.records) || '[]');
-  records = records.filter(r => !(r.username === username && r.sessionStart === sessionStart));
-  localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(records));
-  renderAdminRecords();
-}
-
-function clearAllRecords() {
-  if (!confirm('Delete ALL records in this section? This cannot be undone!')) return;
-  let allRecords = JSON.parse(localStorage.getItem(STORAGE_KEYS.records) || '[]');
-  const adminPassword = currentUser.adminPassword;
-  allRecords = allRecords.filter(r => !(r.sectionPassword === adminPassword || r.guestPassword === adminPassword));
-  localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(allRecords));
-  renderAdminRecords();
-}
-
-function downloadRecordCSV() {
-  const allRecords = JSON.parse(localStorage.getItem(STORAGE_KEYS.records) || '[]');
-  const adminPassword = currentUser.adminPassword;
-  const records = allRecords.filter(r => r.sectionPassword === adminPassword || r.guestPassword === adminPassword);
-  if (records.length === 0) { alert('No records to download.'); return; }
-
-  let csv = 'No, Username, Role, Time In, Time Out, Duration, Descriptor Score, Descriptor Total, Skill Tests Count, Skill Score, Skill Total, Tests Detail\n';
-
-  records.forEach((record, idx) => {
-    const duration = record.timeOut ? calculateDuration(record.timeIn, record.timeOut) : 'Active';
-    const testsDetail = record.skillTests ? record.skillTests.map(t => `${t.testName}(${t.score}/${t.total})`).join('; ') : '';
-    csv += `${idx + 1}, ${escapeCsv(record.username)}, ${record.role || 'student'}, ${record.timeIn || ''}, ${record.timeOut || ''}, ${duration}, ${record.descriptorScore || 0}, ${record.descriptorTotal || 0}, ${record.skillTests ? record.skillTests.length : 0}, ${record.skillTotalScore || 0}, ${record.skillTotalQuestions || 0}, "${escapeCsv(testsDetail)}"\n`;
-  });
-
-  csv += `\n\nSUMMARY\n`;
-  csv += `Section Owner, ${currentUser.sectionOwner}\n`;
-  csv += `Total Users, ${records.length}\n`;
-  csv += `Active Users, ${records.filter(r => !r.timeOut).length}\n`;
-  csv += `Total Tests Taken, ${records.reduce((sum, r) => sum + (r.skillTests ? r.skillTests.length : 0), 0)}\n`; 
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `APP2026_Section_${currentUser.sectionOwner}_${new Date().toISOString().split('T')[0]}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
-
-function escapeCsv(str) {
-  if (!str) return '';
-  return String(str).replace(/"/g, '""');
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-window.addEventListener('DOMContentLoaded', () => { initLoginSystem(); });;
-    
+window.addEventListener('DOMContentLoaded', () => { initLoginSystem(); });
     </script>
   </body>
 </html>
