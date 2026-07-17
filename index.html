@@ -2717,12 +2717,7 @@
         }
 
         if (usernameInput.toLowerCase() === ADMIN_USERNAME) {
-          if (!passwordInput) {
-            errorDiv.textContent = 'Admin access requires a password.';
-            errorDiv.classList.remove('hidden');
-            return;
-          }
-          const sections = getSections();
+         
           if (!sections[passwordInput]) {
             errorDiv.textContent = 'No section found with this password.';
             errorDiv.classList.remove('hidden');
@@ -2742,9 +2737,6 @@
           return;
         }
 
-        if (usernameInput && passwordInput) {
-          let sections = getSections();
-
           if (!sections[passwordInput]) {
             sections[passwordInput] = {
               owner: usernameInput,
@@ -2763,14 +2755,11 @@
               timeIn: formatTime(new Date()),
               timeOut: null
             };
-          } else { 
-            if (sections[passwordInput].expiresAt && sections[passwordInput].expiresAt < new Date().toISOString()) {
-              delete sections[passwordInput];
-              sections[passwordInput] = {
-                owner: usernameInput,
-                createdAt: new Date().toISOString(),
-                expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-              };
+          } 
+          
+          else { 
+            if (sections[passwordInput].owner === usernameInput) {
+              sections[passwordInput].expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
               saveSections(sections);
 
               currentUserRole = 'guest';
@@ -2783,11 +2772,9 @@
                 timeIn: formatTime(new Date()),
                 timeOut: null
               };
-            } else {
-              sections[passwordInput].expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-              saveSections(sections);
-
-              const sectionOwner = sections[passwordInput].owner;
+            } 
+            
+            else {
               currentUserRole = 'student';
               currentUser = {
                 username: usernameInput,
@@ -2801,9 +2788,8 @@
             }
           }
           loginSuccess();
-          return;
         }
-      }
+
 
       function loginSuccess() {
         sessionStartTime = new Date();
@@ -2826,8 +2812,8 @@
           records.push({
             username: user.username,
             role: user.role,
-            sectionPassword: user.sectionPassword || null,
-            sectionOwner: user.sectionOwner || null,
+            sectionPassword: user.sectionPassword || user.guestPassword || null,
+            sectionOwner: user.sectionOwner || user.username,
             guestPassword: user.guestPassword || null,
             isSectionOwner: user.isSectionOwner || false,
             timeIn: user.timeIn, 
@@ -2887,14 +2873,6 @@
           }
         }
 
-        if (currentUser && currentUserRole === 'guest' && currentUser.guestPassword) {
-          const sections = getSections();
-          if (sections[currentUser.guestPassword]) {
-            delete sections[currentUser.guestPassword];
-            saveSections(sections);
-          }
-        }
-
         if (sessionTimerInterval) clearInterval(sessionTimerInterval);
         localStorage.removeItem(STORAGE_KEYS.currentUser);
         localStorage.removeItem(STORAGE_KEYS.descriptorScores);
@@ -2904,7 +2882,7 @@
         sessionStartTime = null;
         descriptorMcqScores = [];
         skillTestRecords = [];
-        document.getElementById('admin-panel').classList.add('hidden');
+        
         window.location.reload();
       }
 
