@@ -2611,7 +2611,7 @@
       let sessionStartTime = null;
       let sessionTimerInterval = null;
       let descriptorMcqScores = [];
-      let skillTestsRecords = [];
+      let skillTestRecords = [];
 
       const ADMIN_USERNAME = 'admin';
 
@@ -2631,7 +2631,14 @@
             currentUser = JSON.parse(savedUser);
             currentUserRole = currentUser.role;
             sessionStartTime = new Date(currentUser.sessionStart);
-            showLoginScreen();
+
+            if (currentUserRole === 'admin') {
+              window.location.href = 'admin.html';
+              return;
+            }
+            hideLoginScreen();
+            startSessionTimer();
+            loadSavedScores();
           } catch (e) {
             showLoginScreen();
           } 
@@ -2642,23 +2649,38 @@
 
       function showLoginScreen() {
         const ls = document.getElementById('login-screen');
+        if (ls) {
         ls.classList.remove('hidden');
         ls.style.display = 'flex';
-        document.getElementById('main-content').classList.add('hidden');
-        document.querySelector('header').classList.add('hidden');
+        }
+
+        const mainContent = document.getElementById('main-content');
+        if (mainContent) mainContent.classList.add('hidden');
+
+        const header = document.querySelector('header');
+        if (header) header.classList.add('hidden');
+
         const nav = document.querySelector('footer.global-nav');
         if (nav) nav.classList.add('hidden');
-        document.getElementById('login-username').focus();
+        
+        const usernameInput = document.getElementById('login-username');
+        if (usernameInput) usernameInput.focus();
       }
 
       function hideLoginScreen() {
         const ls = document.getElementById('login-screen');
+        if (ls) {
         ls.classList.add('hidden');
         ls.style.display = 'none';
-        document.getElementById('main-content').classList.remove('hidden');
-        document.querySelector('header').classList.remove('hidden');
+        }
+        const header = document.querySelector('header');
+        if (header) header.classList.remove('hidden');
+
         const nav = document.querySelector('footer.global-nav');
         if (nav) nav.classList.remove('hidden');
+
+        const mainContent = document.getElementById('main-content');
+        if (mainContent) mainContent.classList.remove('hidden');    
       }
 
       function getSections() {
@@ -2971,7 +2993,7 @@
           const ownerLabel = isOwner ? `<span class="text-xs text-yellow-400 ml-1">[OWNER]</span>` : '';
 
           html += `<tr style="border-bottom:1px solid rgba(96,165,250,0.06);" class="hover:bg-white/5 transition-colors">
-          <td class="p-2 text-gray-400">${idx = 1}</td>
+          <td class="p-2 text-gray-400">${idx + 1}</td>
           <td class="p-2 font-semibold text-blue-100">${escapeHtml(record.username)}${ownerLabel}</td>
           <td class="p-2 text-gray-300">${record.timeIn ||  '--:--:--'}</td>
           <td class="p-2 text-gray-300">${record.timeOut || '--:--:--'}</td>
@@ -2998,7 +3020,7 @@
           let diff = end - start;
           if (diff < 0) diff += 86400;
           const h = Math.floor(diff / 3600);
-          const m = Math.floor(diff % 3600) / 60);
+          const m = Math.floor((diff % 3600) / 60);
           const s = diff % 60;
           return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
         } catch { return 'N/A';}
@@ -3032,7 +3054,7 @@
         records.forEach((record, idx) => {
           const duration = record.timeOut ? calculateDuration(record.timeIn, record.timeOut) : 'Active';
           const testsDetail = record.skillTests ? record.skillTests.map(t => `${t.testName}(${t.score}/${t.total})`).join('; ') : '';
-          csv += `${idx + 1}, ${escapeCsv(record.username)}, ${record.role || 'student'}, ${record.timeIn || ''}, ${record.timeOut || ''}, ${duration}, ${record.descriptorScore || 0}, ${record.descriptorTotal || 0}, ${record.skillTests ? skillTests.length : 0}, ${record.skillTotalScore || 0}, ${record.skillTotalQuestions || 0}, "${escapeCsv(testsDetail)}"\n`;
+          csv += `${idx + 1}, ${escapeCsv(record.username)}, ${record.role || 'student'}, ${record.timeIn || ''}, ${record.timeOut || ''}, ${duration}, ${record.descriptorScore || 0}, ${record.descriptorTotal || 0}, ${record.skillTests ? record.skillTests.length : 0}, ${record.skillTotalScore || 0}, ${record.skillTotalQuestions || 0}, "${escapeCsv(testsDetail)}"\n`;
         });
 
         csv += `\n\nSUMMARY\n`;
@@ -3056,8 +3078,20 @@
         return String(str).replace(/"/g, '""');
       }
 
-      document.addEventListener('DOMContentLoaded', initLoginSystem);
-    
+      function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+      }
+
+      window.addEventListener('DOMContentLoaded', () => {
+        initLoginSystem();
+      });
+        
     </script>
   </body>
 </html>
