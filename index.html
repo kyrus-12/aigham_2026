@@ -2625,27 +2625,17 @@ const STORAGE_KEYS = {
 };
 
 function initLoginSystem() {
-  const savedUser = localStorage.getItem(STORAGE_KEYS.currentUser);
-  if (savedUser) {
-    try {
-      currentUser = JSON.parse(savedUser);
-      currentUserRole = currentUser.role;
-      sessionStartTime = new Date(currentUser.sessionStart);
-      
-      if (currentUserRole === 'admin') {
-        window.location.href = 'admin.html'; 
-        return;
-      }
+  // Clear any residual session data from the last load
+  localStorage.removeItem(STORAGE_KEYS.currentUser);
+  localStorage.removeItem(STORAGE_KEYS.descriptorScores);
+  localStorage.removeItem(STORAGE_KEYS.skillRecords);
+  
+  currentUser = null;
+  currentUserRole = null;
+  sessionStartTime = null;
 
-      hideLoginScreen(); 
-      startSessionTimer();
-      loadSavedScores();
-    } catch (e) {
-      showLoginScreen();
-    } 
-  } else {
-    showLoginScreen();
-  }
+  // Always force the login screen
+  showLoginScreen();
 }
 
 function showLoginScreen() {
