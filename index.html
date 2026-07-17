@@ -2606,7 +2606,7 @@
       }
 
       
-  let currentUser = null;
+ let currentUser = null;
 let currentUserRole = null;
 let sessionStartTime = null;
 let sessionTimerInterval = null;
@@ -2624,29 +2624,21 @@ const STORAGE_KEYS = {
   sections: 'app2026_sections'
 };
 
+// ─── FORCE LOGIN ON REFRESH ───
 function initLoginSystem() {
-  const savedUser = localStorage.getItem(STORAGE_KEYS.currentUser);
-  if (savedUser) {
-    try {
-      currentUser = JSON.parse(savedUser);
-      currentUserRole = currentUser.role;
-      sessionStartTime = new Date(currentUser.sessionStart);
-      
-      // Synchronous routing check upon page reload
-      if (currentUserRole === 'admin') {
-        hideLoginScreen();
-        showAdminPanel();
-      } else {
-        hideLoginScreen();
-        startSessionTimer();
-        loadSavedScores();
-      }
-    } catch (e) {
-      showLoginScreen();
-    } 
-  } else {
-    showLoginScreen();
-  }
+  // Clear any existing session data immediately on load/refresh
+  localStorage.removeItem(STORAGE_KEYS.currentUser);
+  localStorage.removeItem(STORAGE_KEYS.descriptorScores);
+  localStorage.removeItem(STORAGE_KEYS.skillRecords);
+  
+  currentUser = null;
+  currentUserRole = null;
+  sessionStartTime = null;
+  descriptorMcqScores = [];
+  skillTestsRecords = [];
+
+  // Always force-display the login screen on load
+  showLoginScreen();
 }
 
 function showLoginScreen() {
@@ -2656,7 +2648,7 @@ function showLoginScreen() {
     ls.style.display = 'flex';
   }
   
-  // Force-hide all application panels when accessing the portal gate
+  // Keep student content, admin dashboards, headers, and navs completely hidden
   const mainContent = document.getElementById('main-content');
   if (mainContent) mainContent.classList.add('hidden');
   
@@ -2689,8 +2681,7 @@ function hideLoginScreen() {
   const mainContent = document.getElementById('main-content');
   const adminPanel = document.getElementById('admin-panel');
 
-  // --- HARD SEPARATION RULE ---
-  // Ensures that Admin dashboards and Student layouts NEVER overlap in the same DOM view
+  // ─── STRICT VIEW ISOLATION ───
   if (currentUserRole === 'admin') {
     if (mainContent) mainContent.classList.add('hidden');
     if (adminPanel) adminPanel.classList.remove('hidden');
@@ -2811,7 +2802,7 @@ function handleLogin(event) {
 
       const sectionOwner = currentSections[passwordInput].owner;
       
-      // If the guest logs back in from another device/browser tab using their credentials
+      // If the guest logs back in using their exact username and shared password
       if (sectionOwner === usernameInput) {
         currentUserRole = 'guest';
         currentUser = {
@@ -2824,7 +2815,7 @@ function handleLogin(event) {
           timeOut: null
         };
       } 
-      // A new unique student username enters the room session key
+      // A new student joins using their username and the shared password
       else {
         currentUserRole = 'student';
         currentUser = {
