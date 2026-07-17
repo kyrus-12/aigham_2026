@@ -2634,8 +2634,6 @@ function initLoginSystem() {
       hideLoginScreen(); 
       startSessionTimer();
       loadSavedScores();
-      if (currentUserRole === 'admin') {
-        showAdminPanel();
       }
     } catch (e) {
       showLoginScreen();
