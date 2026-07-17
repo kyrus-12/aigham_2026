@@ -2606,12 +2606,12 @@
       }
 
       
-     let currentUser = null;
+   let currentUser = null;
 let currentUserRole = null;
 let sessionStartTime = null;
 let sessionTimerInterval = null;
 let descriptorMcqScores = [];
-let skillTestRecords = []; 
+let skillTestsRecords = []; // Keep global spelling consistent
 
 const ADMIN_USERNAME = 'admin';
 
@@ -2625,17 +2625,28 @@ const STORAGE_KEYS = {
 };
 
 function initLoginSystem() {
-  // Clear any residual session data from the last load
-  localStorage.removeItem(STORAGE_KEYS.currentUser);
-  localStorage.removeItem(STORAGE_KEYS.descriptorScores);
-  localStorage.removeItem(STORAGE_KEYS.skillRecords);
-  
-  currentUser = null;
-  currentUserRole = null;
-  sessionStartTime = null;
-
-  // Always force the login screen
-  showLoginScreen();
+  const savedUser = localStorage.getItem(STORAGE_KEYS.currentUser);
+  if (savedUser) {
+    try {
+      currentUser = JSON.parse(savedUser);
+      currentUserRole = currentUser.role;
+      sessionStartTime = new Date(currentUser.sessionStart);
+      
+      // Auto-routing based on role on reload:
+      if (currentUserRole === 'admin') {
+        hideLoginScreen();
+        showAdminPanel();
+      } else {
+        hideLoginScreen();
+        startSessionTimer();
+        loadSavedScores();
+      }
+    } catch (e) {
+      showLoginScreen();
+    } 
+  } else {
+    showLoginScreen();
+  }
 }
 
 function showLoginScreen() {
@@ -2645,8 +2656,12 @@ function showLoginScreen() {
     ls.style.display = 'flex';
   }
   
+  // Hide all user dashboard sections while logging in
   const mainContent = document.getElementById('main-content');
   if (mainContent) mainContent.classList.add('hidden');
+  
+  const adminPanel = document.getElementById('admin-panel');
+  if (adminPanel) adminPanel.classList.add('hidden');
   
   const header = document.querySelector('header');
   if (header) header.classList.add('hidden');
@@ -2664,24 +2679,25 @@ function hideLoginScreen() {
     ls.classList.add('hidden');
     ls.style.display = 'none';
   }
-
-  const adminPanel = document.getElementById('admin-panel');
-  if (adminPanel) {
-    adminPanel.classList.add('hidden');
-    adminPanel.style.display = 'none';
-  }
   
+  // Expose headers/footers for standard templates
   const header = document.querySelector('header');
   if (header) header.classList.remove('hidden');
   
   const nav = document.querySelector('footer.global-nav');
   if (nav) nav.classList.remove('hidden');
 
+  // Route screen layout explicitly by role:
   const mainContent = document.getElementById('main-content');
-  if (mainContent) {
-    mainContent.classList.remove('hidden');
-    mainContent.style.display = 'block';
-}
+  const adminPanel = document.getElementById('admin-panel');
+
+  if (currentUserRole === 'admin') {
+    if (mainContent) mainContent.classList.add('hidden');
+    if (adminPanel) adminPanel.classList.remove('hidden');
+  } else {
+    if (adminPanel) adminPanel.classList.add('hidden');
+    if (mainContent) mainContent.classList.remove('hidden');
+  }
 }
 
 function getSections() {
@@ -2698,7 +2714,6 @@ function handleLogin(event) {
   const sections = getSections();
   const now = new Date().toISOString();
   let changed = false;
-
   for (const [password, section] of Object.entries(sections)) {
     if (section.expiresAt && section.expiresAt < now) {
       delete sections[password];
@@ -2717,25 +2732,26 @@ function handleLogin(event) {
     errorDiv.classList.remove('hidden');
     return;
   }
-  if (!passwordInput) {
-    errorDiv.textContent = 'Please enter a password or section key.';
-    errorDiv.classList.remove('hidden');
-    return;
-  }
 
+  // --- ADMIN AUTHENTICATION ---
   if (usernameInput.toLowerCase() === ADMIN_USERNAME) {
-    if (!sections[passwordInput]) {
-      errorDiv.textContent = 'No active section found with this password.';
+    if (!passwordInput) {
+      errorDiv.textContent = 'Admin access requires a password.';
       errorDiv.classList.remove('hidden');
       return;
     }
-
+    const currentSections = getSections();
+    if (!currentSections[passwordInput]) {
+      errorDiv.textContent = 'No section found with this password.';
+      errorDiv.classList.remove('hidden');
+      return;
+    }
     currentUserRole = 'admin';
     currentUser = {
       username: 'admin',
       role: 'admin',
       adminPassword: passwordInput,
-      sectionOwner: sections[passwordInput].owner,
+      sectionOwner: currentSections[passwordInput].owner,
       sessionStart: new Date().toISOString(),
       timeIn: formatTime(new Date()),
       timeOut: null
@@ -2743,30 +2759,18 @@ function handleLogin(event) {
     loginSuccess();
     return;
   }
-  
-  if (!sections[passwordInput]) {
-    sections[passwordInput] = {
-      owner: usernameInput,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-    };
-    saveSections(sections);
 
-    currentUserRole = 'guest';
-    currentUser = {
-      username: usernameInput,
-      role: 'guest',
-      guestPassword: passwordInput,
-      isSectionOwner: true,
-      sessionStart: new Date().toISOString(),
-      timeIn: formatTime(new Date()),
-      timeOut: null
-    };
-  } 
-  else {
-    if (sections[passwordInput].owner === usernameInput) {
-      sections[passwordInput].expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-      saveSections(sections);
+  // --- STUDENT & GUEST AUTHENTICATION ---
+  if (usernameInput && passwordInput) {
+    let currentSections = getSections();
+
+    if (!currentSections[passwordInput]) {
+      currentSections[passwordInput] = {
+        owner: usernameInput,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      };
+      saveSections(currentSections);
 
       currentUserRole = 'guest';
       currentUser = {
@@ -2778,37 +2782,63 @@ function handleLogin(event) {
         timeIn: formatTime(new Date()),
         timeOut: null
       };
-    }
-    else {
-      currentUserRole = 'student';
-      currentUser = {
-        username: usernameInput,
-        role: 'student',
-        sectionPassword: passwordInput,
-        sectionOwner: sections[passwordInput].owner,
-        sessionStart: new Date().toISOString(),
-        timeIn: formatTime(new Date()),
-        timeOut: null
-      };
-    }
-  }
+    } else { 
+      if (currentSections[passwordInput].expiresAt && currentSections[passwordInput].expiresAt < new Date().toISOString()) {
+        delete currentSections[passwordInput];
+        currentSections[passwordInput] = {
+          owner: usernameInput,
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+        };
+        saveSections(currentSections);
 
-  loginSuccess();
+        currentUserRole = 'guest';
+        currentUser = {
+          username: usernameInput,
+          role: 'guest',
+          guestPassword: passwordInput,
+          isSectionOwner: true,
+          sessionStart: new Date().toISOString(),
+          timeIn: formatTime(new Date()),
+          timeOut: null
+        };
+      } else {
+        currentSections[passwordInput].expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        saveSections(currentSections);
+
+        const sectionOwner = currentSections[passwordInput].owner;
+        currentUserRole = 'student';
+        currentUser = {
+          username: usernameInput,
+          role: 'student',
+          sectionPassword: passwordInput,
+          sectionOwner: sectionOwner,
+          sessionStart: new Date().toISOString(),
+          timeIn: formatTime(new Date()),
+          timeOut: null
+        };
+      }
+    }
+    loginSuccess();
+    return;
+  }
 }
 
 function loginSuccess() {
   sessionStartTime = new Date();
   localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(currentUser));
   
-  if (currentUserRole === 'admin') {
-    window.location.href = 'admin.html';
-    return;
+  if (currentUserRole === 'student' || currentUserRole === 'guest') {
+    saveUserToRecords(currentUser);
   }
-
-  saveUserToRecords(currentUser);
+  
   hideLoginScreen();
   startSessionTimer();
   loadSavedScores();
+
+  if (currentUserRole === 'admin') {
+    showAdminPanel();
+  }
 }
 
 function saveUserToRecords(user) {
@@ -2818,8 +2848,8 @@ function saveUserToRecords(user) {
     records.push({
       username: user.username,
       role: user.role,
-      sectionPassword: user.sectionPassword || user.guestPassword || null,
-      sectionOwner: user.sectionOwner || user.username,
+      sectionPassword: user.sectionPassword || null,
+      sectionOwner: user.sectionOwner || null,
       guestPassword: user.guestPassword || null,
       isSectionOwner: user.isSectionOwner || false,
       timeIn: user.timeIn, 
@@ -2833,6 +2863,31 @@ function saveUserToRecords(user) {
     });
     localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(records));
   }
+}
+
+function showAdminPanel() {
+  const step0 = document.getElementById('step-0');
+  if (step0) step0.classList.add('hidden');
+  
+  const adminPanel = document.getElementById('admin-panel');
+  if (adminPanel) adminPanel.classList.remove('hidden');
+  
+  const stepTitle = document.getElementById('step-title');
+  if (stepTitle) stepTitle.textContent = 'Admin-Dashboard';
+  
+  const stepIndicator = document.getElementById('step-indicator');
+  if (stepIndicator) stepIndicator.textContent = 'Admin';
+  
+  const stepBreadcrumb = document.getElementById('step-breadcrumb');
+  if (stepBreadcrumb) stepBreadcrumb.textContent = 'Admin / Records';
+  
+  const backButton = document.getElementById('back-button');
+  if (backButton) backButton.classList.add('hidden');
+  
+  const resetButton = document.getElementById('reset-button');
+  if (resetButton) resetButton.classList.add('hidden');
+  
+  renderAdminRecords();
 }
 
 function startSessionTimer() {
@@ -2861,10 +2916,18 @@ function logoutUser() {
       record.sessionEnd = new Date().toISOString();
       record.descriptorScore = getTotalDescriptorScore();
       record.descriptorTotal = getTotalDescriptorTotal();
-      record.skillTests = skillTestRecords;
-      record.skillTotalScore = skillTestRecords.reduce((sum, t) => sum + t.score, 0);
-      record.skillTotalQuestions = skillTestRecords.reduce((sum, t) => sum + t.total, 0);
+      record.skillTests = skillTestsRecords;
+      record.skillTotalScore = skillTestsRecords.reduce((sum, t) => sum + t.score, 0);
+      record.skillTotalQuestions = skillTestsRecords.reduce((sum, t) => sum + t.total, 0);
       localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(records));
+    }
+  }
+
+  if (currentUser && currentUserRole === 'guest' && currentUser.guestPassword) {
+    const sections = getSections();
+    if (sections[currentUser.guestPassword]) {
+      delete sections[currentUser.guestPassword];
+      saveSections(sections);
     }
   }
 
@@ -2876,7 +2939,10 @@ function logoutUser() {
   currentUserRole = null;
   sessionStartTime = null;
   descriptorMcqScores = [];
-  skillTestRecords = [];
+  skillTestsRecords = [];
+  
+  const adminPanel = document.getElementById('admin-panel');
+  if (adminPanel) adminPanel.classList.add('hidden');
   
   window.location.reload();
 }
@@ -2886,7 +2952,7 @@ function loadSavedScores() {
   const savedDescriptor = localStorage.getItem(STORAGE_KEYS.descriptorScores);
   const savedSkill = localStorage.getItem(STORAGE_KEYS.skillRecords);
   if (savedDescriptor) descriptorMcqScores = JSON.parse(savedDescriptor);
-  if (savedSkill) skillTestRecords = JSON.parse(savedSkill);
+  if (savedSkill) skillTestsRecords = JSON.parse(savedSkill);
 }
 
 function savedDescriptorScore(mcqId, isCorrect) {
@@ -2898,14 +2964,14 @@ function savedDescriptorScore(mcqId, isCorrect) {
 
 function saveSkillTestRecord(testName, score, total, history) {
   if (currentUserRole !== 'student' && currentUserRole !== 'guest') return;
-  skillTestRecords.push({
+  skillTestsRecords.push({
     testName: testName,
     score: score,
     total: total,
     timestamp: new Date().toISOString(),
     details: history.map(h => ({ question: h.question.substring(0, 100), type: h.type, isCorrect: h.isCorrect }))
   });
-  localStorage.setItem(STORAGE_KEYS.skillRecords, JSON.stringify(skillTestRecords));
+  localStorage.setItem(STORAGE_KEYS.skillRecords, JSON.stringify(skillTestsRecords));
   updateUserRecord();
 }
 
@@ -2924,14 +2990,155 @@ function updateUserRecord() {
   if (record) {
     record.descriptorScore = getTotalDescriptorScore();
     record.descriptorTotal = getTotalDescriptorTotal();
-    record.skillTests = skillTestRecords;
-    record.skillTotalScore = skillTestRecords.reduce((sum, t) => sum + t.score, 0); 
-    record.skillTotalQuestions = skillTestRecords.reduce((sum, t) => sum + t.total, 0); 
+    record.skillTests = skillTestsRecords;
+    record.skillTotalScore = skillTestsRecords.reduce((sum, t) => sum + t.score, 0);
+    record.skillTotalQuestions = skillTestsRecords.reduce((sum, t) => sum + t.total, 0);
     localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(records));
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => { initLoginSystem(); });
+function renderAdminRecords() {
+  const allRecords = JSON.parse(localStorage.getItem(STORAGE_KEYS.records) || '[]');
+  const tbody = document.getElementById('admin-records-body');
+  const noRecords = document.getElementById('admin-no-records');
+  const searchInput = document.getElementById('admin-search');
+  const searchTerm = (searchInput ? searchInput.value : '').toLowerCase();
+
+  const adminPassword = currentUser.adminPassword;
+  const records = allRecords.filter(r => r.sectionPassword === adminPassword || r.guestPassword === adminPassword);
+  
+  const totalUsersEl = document.getElementById('admin-total-users');
+  if (totalUsersEl) totalUsersEl.textContent = records.length;
+  
+  const activeUsersEl = document.getElementById('admin-active-users');
+  if (activeUsersEl) activeUsersEl.textContent = records.filter(r => !r.timeOut).length;
+  
+  const totalTestsEl = document.getElementById('admin-total-tests');
+  if (totalTestsEl) totalTestsEl.textContent = records.reduce((sum, r) => sum + (r.skillTests ? r.skillTests.length : 0), 0);
+
+  let totalCombined = 0;
+  records.forEach(r => { totalCombined += (r.descriptorScore || 0) + (r.skillTotalScore || 0) });
+  
+  const avgScoreEl = document.getElementById('admin-avg-score');
+  if (avgScoreEl) avgScoreEl.textContent = totalCombined;
+
+  const filtered = records.filter(r => r.username.toLowerCase().includes(searchTerm));
+
+  if (filtered.length === 0) {
+    if (tbody) tbody.innerHTML = '';
+    if (noRecords) noRecords.classList.remove('hidden');
+    return;
+  }
+  if (noRecords) noRecords.classList.add('hidden');
+
+  let html = '';
+  filtered.forEach((record, idx) => {
+    // FIXED: Correct typo 'calculatorDuration' to 'calculateDuration'
+    const duration = record.timeOut ? calculateDuration(record.timeIn, record.timeOut) : 'Active';
+    const statusClass = !record.timeOut ? 'text-green-400' : 'text-gray-400';
+    const isOwner = record.isSectionOwner;
+    const ownerLabel = isOwner ? `<span class="text-xs text-yellow-400 ml-1">[OWNER]</span>` : '';
+
+    html += `<tr style="border-bottom:1px solid rgba(96,165,250,0.06);" class="hover:bg-white/5 transition-colors">
+    <td class="p-2 text-gray-400">${idx + 1}</td>
+    <td class="p-2 font-semibold text-blue-100">${escapeHtml(record.username)}${ownerLabel}</td>
+    <td class="p-2 text-gray-300">${record.timeIn || '--:--:--'}</td>
+    <td class="p-2 text-gray-300">${record.timeOut || '--:--:--'}</td>
+    <td class="p-2 ${statusClass} text-xs">${duration}</td>
+    <td class="p-2 text-blue-200">${record.descriptorScore || 0} <span class="text-gray-500">/ ${record.descriptorTotal || 0}</span></td>
+    <td class="p-2 text-gray-300">${record.skillTests ? record.skillTests.length : 0} tests</td>
+    <td class="p-2 text-blue-200">${record.skillTotalScore || 0} <span class="text-gray-500">/ ${record.skillTotalQuestions || 0}</span></td>
+    <td class="p-2"><button class="btn btn-danger text-xs py-1 px-2" onclick="deleteUserRecord('${record.username}', '${record.sessionStart}')">Delete</button></td>
+    </tr>`;
+  });
+  if (tbody) tbody.innerHTML = html;
+}
+
+function filterAdminRecords() {
+  renderAdminRecords();
+}
+
+function calculateDuration(timeIn, timeOut) {
+  try {
+    const [h1, m1, s1] = timeIn.split(':').map(Number);
+    const [h2, m2, s2] = timeOut.split(':').map(Number);
+    const start = h1 * 3600 + m1 * 60 + s1;
+    const end = h2 * 3600 + m2 * 60 + s2;
+    let diff = end - start;
+    if (diff < 0) diff += 86400;
+    const h = Math.floor(diff / 3600);
+    const m = Math.floor((diff % 3600) / 60); // FIXED: Added missing opening bracket
+    const s = diff % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  } catch { return 'N/A'; }
+}
+
+function deleteUserRecord(username, sessionStart) {
+  if (!confirm(`Delete record for "${username}"?`)) return;
+  let records = JSON.parse(localStorage.getItem(STORAGE_KEYS.records) || '[]');
+  records = records.filter(r => !(r.username === username && r.sessionStart === sessionStart));
+  localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(records));
+  renderAdminRecords();
+}
+
+function clearAllRecords() {
+  if (!confirm('Delete ALL records in this section? This cannot be undone!')) return;
+  let allRecords = JSON.parse(localStorage.getItem(STORAGE_KEYS.records) || '[]');
+  const adminPassword = currentUser.adminPassword;
+  allRecords = allRecords.filter(r => !(r.sectionPassword === adminPassword || r.guestPassword === adminPassword));
+  localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(allRecords));
+  renderAdminRecords();
+}
+
+function downloadRecordCSV() {
+  const allRecords = JSON.parse(localStorage.getItem(STORAGE_KEYS.records) || '[]');
+  const adminPassword = currentUser.adminPassword;
+  const records = allRecords.filter(r => r.sectionPassword === adminPassword || r.guestPassword === adminPassword);
+  if (records.length === 0) { alert('No records to download.'); return; }
+
+  let csv = 'No, Username, Role, Time In, Time Out, Duration, Descriptor Score, Descriptor Total, Skill Tests Count, Skill Score, Skill Total, Tests Detail\n';
+
+  records.forEach((record, idx) => {
+    const duration = record.timeOut ? calculateDuration(record.timeIn, record.timeOut) : 'Active';
+    const testsDetail = record.skillTests ? record.skillTests.map(t => `${t.testName}(${t.score}/${t.total})`).join('; ') : '';
+    csv += `${idx + 1}, ${escapeCsv(record.username)}, ${record.role || 'student'}, ${record.timeIn || ''}, ${record.timeOut || ''}, ${duration}, ${record.descriptorScore || 0}, ${record.descriptorTotal || 0}, ${record.skillTests ? record.skillTests.length : 0}, ${record.skillTotalScore || 0}, ${record.skillTotalQuestions || 0}, "${escapeCsv(testsDetail)}"\n`;
+  });
+
+  csv += `\n\nSUMMARY\n`;
+  csv += `Section Owner, ${currentUser.sectionOwner}\n`;
+  csv += `Total Users, ${records.length}\n`;
+  csv += `Active Users, ${records.filter(r => !r.timeOut).length}\n`;
+  // FIXED: Adjusted typo 'skillTest' and 'r.skillTest' in reduce logic
+  csv += `Total Tests Taken, ${records.reduce((sum, r) => sum + (r.skillTests ? r.skillTests.length : 0), 0)}\n`;
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `APP2026_Section_${currentUser.sectionOwner}_${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsv(str) {
+  if (!str) return '';
+  return String(str).replace(/"/g, '""');
+}
+
+// Utility function to ensure escapeHtml is defined if missing elsewhere in script scope
+function escapeHtml(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+document.addEventListener('DOMContentLoaded', initLoginSystem);
     </script>
   </body>
 </html>
